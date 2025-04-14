@@ -136,7 +136,6 @@ def paginate_wrapper(query, limit, offset, *args, config=load_config()):
 
 def execute_wrapper(func_or_query, *args, config=load_config()):
     with psycopg2.connect(**config) as conn:
-        print('Connected to the PostgreSQL server.')
         with conn.cursor() as cur:
             if callable(func_or_query):
                 result = func_or_query(cur)
@@ -147,6 +146,7 @@ def execute_wrapper(func_or_query, *args, config=load_config()):
             except:
                 result = None
             conn.commit()
+            print('Changes committed')
             return result
 
 
@@ -162,10 +162,20 @@ def call_procedure():
     if not query: return
     args  = []
     input_arg = "_"
-    while input_arg != "E":
+    while input_arg != "E" and procedure_name != "IM":
         if input_arg != "_": args.append(input_arg)
         input_arg = input("Input the next argument for procedure \n or E -> Exit")
-    if args: execute_wrapper(query, *args)
+    if procedure_name == "IM":
+        while input_arg != "E":
+            first_name = input('Enter first name: ')
+            second_name = input('Enter second name: ')
+            username = input('Enter username: ')
+            phone = input('Enter phone number: ')
+            user_data = tuple([first_name, second_name, username, phone])
+            args.append(user_data)
+            input_arg = input("E to exit, Enter to add new user")
+        execute_wrapper(query, args)
+    elif args: execute_wrapper(query, *args)
 
 
 def insert_data(table_type='person'):
@@ -357,4 +367,3 @@ if __name__ == "__main__":
                 print('Invalid option. Please try again.')
         except Exception as e:
             print(f'Something went wrong: {e}')
-
