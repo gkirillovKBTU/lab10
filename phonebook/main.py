@@ -1,4 +1,5 @@
 import psycopg2
+import psycopg2.extras
 import os
 from config import load_config
 from functools import partial
@@ -69,32 +70,32 @@ def database_init(config):
         $$
         """,
         """
-        CREATE TYPE person_data AS (
-            fname VARCHAR(35),
-            sname VARCHAR(35),
-            username VARCHAR(35),
-            phone VARCHAR(20)
-        );
-        """,
-        """
-        CREATE OR REPLACE PROCEDURE insert_many_users(
-            persons_data person_data[]
-        )
-        LANGUAGE plpgsql
-        AS $$
-        DECLARE
-            rec person_data;
-            rec_id INTEGER;
-        BEGIN
-            FOREACH rec IN ARRAY persons_data
-            LOOP
-                INSERT INTO persons (first_name, second_name, username)
-                VALUES (rec.fname, rec.sname, rec.username) RETURNING id INTO rec_id;
-                INSERT INTO phones (phone, person_id) VALUES (rec.phone, rec_id);
-            END LOOP;
-        END;
-        $$
-        """
+            CREATE TYPE person_data AS (
+                fname VARCHAR(35),
+                sname VARCHAR(35),
+                username VARCHAR(35),
+                phone VARCHAR(20)
+            );
+            """,
+            """
+            CREATE OR REPLACE PROCEDURE insert_many_users(
+                persons_data person_data[]
+            )
+            LANGUAGE plpgsql
+            AS $$
+            DECLARE
+                rec person_data;
+                rec_id INTEGER;
+            BEGIN
+                FOREACH rec IN ARRAY persons_data
+                LOOP
+                    INSERT INTO persons (first_name, second_name, username)
+                    VALUES (rec.fname, rec.sname, rec.username) RETURNING id INTO rec_id;
+                    INSERT INTO phones (phone, person_id) VALUES (rec.phone, rec_id);
+                END LOOP;
+            END;
+            $$
+            """
     ]
 
     try:
@@ -104,9 +105,17 @@ def database_init(config):
                 for command in commands:
                     cur.execute(command)
                 conn.commit()
+            psycopg2.extras.register_composite("person_data", conn)
 
     except (Exception, psycopg2.DatabaseError) as e:
         print(e)
+
+
+procedure_queries = {
+    "UU": "CALL add_update_user(%s, %s, %s, %s);",
+    "DD": "CALL delete_by_phone_or_name(%s, %s, %s);",
+    "IM": "CALL insert_many_users(%s);"
+}
 
 
 def paginate_wrapper(query, limit, offset, *args, config=load_config()):
@@ -133,9 +142,30 @@ def execute_wrapper(func_or_query, *args, config=load_config()):
                 result = func_or_query(cur)
             else:
                 cur.execute(func_or_query, args)
+            try:
                 result = cur.fetchall()
+            except:
+                result = None
             conn.commit()
             return result
+
+
+def call_procedure():
+    procedure_name = input("""
+        Choose the method for inserting:
+            Update user  -> UU
+            Delete data  -> DD
+            Insert several users -> IM
+            Exit -> E
+    """)
+    query = procedure_queries.get(procedure_name, None)
+    if not query: return
+    args  = []
+    input_arg = "_"
+    while input_arg != "E":
+        if input_arg != "_": args.append(input_arg)
+        input_arg = input("Input the next argument for procedure \n or E -> Exit")
+    if args: execute_wrapper(query, *args)
 
 
 def insert_data(table_type='person'):
@@ -300,6 +330,7 @@ if __name__ == "__main__":
         'DP': partial(delete_data, 'phone'),
         'S': select_data,
         "SP": partial(select_data, True),
+        "uP": call_procedure,
         'E': lambda: exit(0)
     }
 
@@ -316,6 +347,7 @@ if __name__ == "__main__":
                     Delete Phone  -> DP
                     Select Data  -> S
                     Select Data Paginated -> SP
+                    Use Procedures -> uP
                     Exit -> E
                 """
             ))
