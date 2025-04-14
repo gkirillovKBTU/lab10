@@ -33,7 +33,9 @@ appState = dict(
     window_size=SNAKE_INITIAL_LENGTH,
     score=INIT_SCORE,
     level=INIT_LEVEL,
-    PAUSED=False
+    prev_level=INIT_LEVEL,
+    PAUSED=False,
+    vulnerability=False
 )
 
 
@@ -41,6 +43,8 @@ font_small = pygame.font.SysFont("Verdana", 20)
 font = pygame.font.SysFont("Verdana", 60)
 game_over = font.render("Game Over", True, 'white')
 CREATE_FRUIT = pygame.USEREVENT + 1
+ENABLE_VULNERABILITY = pygame.USEREVENT + 2
+DISABLE_VULNERABILITY = pygame.USEREVENT + 3
 pygame.time.set_timer(CREATE_FRUIT, 1500)
 
 font_small = pygame.font.SysFont("Verdana", 20)
@@ -140,15 +144,7 @@ class SnakeHead(pygame.sprite.Sprite):
         return point
 
     def move(self):
-
         self.rect.move_ip(get_movement(self.current_state))
-        # self.rect.x = max(0, min(self.rect.x, SCREEN_WIDTH - self.rect.width))
-        # self.rect.y = max(0, min(self.rect.y, SCREEN_HEIGHT - self.rect.height))
-        # if self.rect.x > SCREEN_WIDTH or self.rect.x < 0 or \
-        #    self.rect.y > SCREEN_WIDTH or self.rect.y < 0:
-        #     game_over_handler()
-# lifetime, weight randomly initialized separately 
-# litetime, weight - initialiazation logic - keep it in __init__
 
 class Fruit(pygame.sprite.Sprite):
     def __init__(self, lifetime=None, weight=None):
@@ -234,6 +230,9 @@ class SceneManager:
     def set_user_data(self, user_data):
         self.user_data = user_data
 
+    def save_progress(self):
+        update_user_score(self.user_data.id, self.user_data.score, self.user_data.level)
+
 
 class IUpdatable(ABC):
     @abstractmethod
@@ -289,9 +288,9 @@ class StartMenu(Scene):
         font = pygame.font.Font(None, 50)
         label_text = font.render("Input your username", True, (255, 255, 255))
         username_text = font.render(self.username, True, (255, 255, 255)) # True enables anti-aliasing
-        screen.blit(label_text, (200, 250))
-        screen.blit(username_text, (200, 300))
-    
+        screen.blit(label_text, (150, 250))
+        screen.blit(username_text, (175, 300))
+
 
 class GameplayScene(Scene, IUpdatable):
     def __init__(self, manager):
@@ -304,6 +303,8 @@ class GameplayScene(Scene, IUpdatable):
         self.all_sprites.add(self.S1)
 
     def handle_events(self, events):
+        pressed = pygame.key.get_pressed()
+        ctrl_held = pressed[pygame.K_LCTRL] or pressed[pygame.K_RCTRL]
         for event in events:              
             if event.type == pygame.QUIT:
                 pygame.quit()
@@ -311,9 +312,17 @@ class GameplayScene(Scene, IUpdatable):
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE:
                     appState['PAUSED'] = not appState['PAUSED']
+                if event.key == pygame.K_s and ctrl_held:
+                    self.manager.save_progress()
             if event.type == CREATE_FRUIT and len(self.fruits) < 5:
                 fruit = Fruit()
                 self.fruits.add(fruit)
+            
+            if event.type == ENABLE_VULNERABILITY:
+                appState['vulnerability'] = True
+            
+            if event.type == DISABLE_VULNERABILITY:
+                appState['vulnerability'] = False
 
     def update(self):
 
@@ -334,8 +343,6 @@ class GameplayScene(Scene, IUpdatable):
                 point.kill()
 
         for collide_point in self.bodyWindow[:-50]:
-            # if pygame.sprite.collide_rect(collide_point, S1):
-            #     game_over_handler()
             if collide_point.rect.collidepoint(self.S1.rect.center):
                 game_over_handler()
 
@@ -344,9 +351,19 @@ class GameplayScene(Scene, IUpdatable):
                 self.manager.user_data.score += fruit.weight
                 fruit.kill()
             fruit.update()
-    
+
+        # for border in LEVELS[self.manager.user_data.level - 1]:
+        if self.S1.rect.collidelist(LEVELS[self.manager.user_data.level - 1]) != -1 and not appState['vulnerability']:
+            game_over_handler()
+
         LEVEL = self.manager.user_data.score // 10 + 1
         self.manager.user_data.level = LEVEL
+
+        if self.manager.user_data.level > appState['prev_level']:
+            appState['prev_level'] = LEVEL
+            pygame.event.post(pygame.event.Event(ENABLE_VULNERABILITY))
+            pygame.time.set_timer(DISABLE_VULNERABILITY, 2000, loops=1)
+
 
         appState['speed'] = 0 if appState['PAUSED'] else LEVEL
 
@@ -366,8 +383,6 @@ class GameplayScene(Scene, IUpdatable):
         for collide_point in self.bodyWindow[:-50]:
             if collide_point.rect.collidepoint(self.S1.rect.center):
                 game_over_handler()
-        # for fruit in self.fruits:
-        #     screen.blit(fruit.image, fruit.rect)
         self.fruits.draw(screen)
 
         for border in LEVELS[self.manager.user_data.level - 1]:
@@ -379,11 +394,12 @@ class GameplayScene(Scene, IUpdatable):
 
 def game_over_handler(screen=DISPLAYSURF):
     screen.fill(RED)
-    screen.blit(game_over, (60,250))
+    screen.blit(game_over, (125,250))
     pygame.display.update()
     for sprite in scene_manager.current_scene.all_sprites:
         sprite.kill()
     appState['RUN'] = False
+    time.sleep(2)
 
 
 if __name__ == "__main__":
@@ -403,4 +419,4 @@ if __name__ == "__main__":
         FramePerSec.tick(FPS)
 
     # Save user data to database
-    update_user_score(scene_manager.user_data.id, scene_manager.user_data.score, scene_manager.user_data.level)
+    scene_manager.save_progress()
